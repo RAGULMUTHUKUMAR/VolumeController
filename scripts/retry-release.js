@@ -23,16 +23,69 @@ function run(command, args, { capture = false } = {}) {
   return result.stdout?.trim();
 }
 
+function getGithubRepository() {
+  const remote = run('git', ['remote', 'get-url', 'origin'], { capture: true });
+  const match = remote.match(
+    /^(?:https?:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([^/]+\/[^/]+?)(?:\.git)?\/?$/,
+  );
+  if (!match) {
+    fail(`Could not determine a GitHub owner/repository from origin URL "${remote}".`);
+  }
+  return match[1];
+}
+
+function assertReleaseDoesNotExist(repository, tag) {
+  const headers = [
+    'Accept: application/vnd.github+json',
+    'X-GitHub-Api-Version: 2022-11-28',
+  ];
+  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  if (token) {
+    headers.push(`Authorization: Bearer ${token}`);
+  }
+
+  const curlConfig = headers
+    .map(header => `header = "${header.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`)
+    .join('\n');
+  const result = spawnSync(
+    'curl',
+    [
+      '--silent',
+      '--show-error',
+      '--location',
+      '--output',
+      '/dev/null',
+      '--write-out',
+      '%{http_code}',
+      '--config',
+      '-',
+      `https://api.github.com/repos/${repository}/releases/tags/${tag}`,
+    ],
+    {
+      encoding: 'utf8',
+      input: curlConfig,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    },
+  );
+  if (result.error) {
+    fail(`Could not run curl to check GitHub Releases: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    fail(`GitHub Release lookup failed: ${result.stderr.trim()}`);
+  }
+
+  const status = result.stdout.trim();
+  if (status === '200') {
+    fail(`GitHub Release ${tag} already exists. Published releases must not be retagged.`);
+  }
+  if (status !== '404') {
+    fail(`GitHub Release lookup returned HTTP ${status}; refusing to move the tag.`);
+  }
+}
+
 function main() {
   if (process.argv.length !== 3 || !/^v\d+\.\d+\.\d+$/.test(tag || '')) {
     fail('Provide a release tag in vMAJOR.MINOR.PATCH format, e.g. v1.2.3.');
-  }
-
-  const packageJson = require('../package.json');
-  if (tag.slice(1) !== packageJson.version) {
-    fail(
-      `Tag ${tag} does not match package.json version ${packageJson.version}.`,
-    );
   }
 
   const branch = run('git', ['branch', '--show-current'], { capture: true });
@@ -43,42 +96,22 @@ function main() {
       }).`,
     );
   }
-  if (run('git', ['status', '--porcelain'], { capture: true })) {
-    fail('The working tree must be clean before retrying a release.');
-  }
 
   run('git', ['fetch', 'origin', 'main']);
-  const head = run('git', ['rev-parse', 'HEAD'], { capture: true });
   const remoteHead = run('git', ['rev-parse', 'origin/main'], {
     capture: true,
   });
-  if (head !== remoteHead) {
-    fail('Local main must match origin/main before retrying a release.');
-  }
 
-  const repo = run(
-    'gh',
-    ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner'],
-    {
-      capture: true,
-    },
+  const remotePackageJson = JSON.parse(
+    run('git', ['show', 'origin/main:package.json'], { capture: true }),
   );
-  const releases = run(
-    'gh',
-    [
-      'api',
-      `repos/${repo}/releases`,
-      '--paginate',
-      '--jq',
-      `.[] | select(.tag_name == "${tag}") | .tag_name`,
-    ],
-    { capture: true },
-  );
-  if (releases) {
+  if (tag.slice(1) !== remotePackageJson.version) {
     fail(
-      `GitHub Release ${tag} already exists. Published releases must not be retagged.`,
+      `Tag ${tag} does not match package.json version ${remotePackageJson.version} on origin/main.`,
     );
   }
+
+  assertReleaseDoesNotExist(getGithubRepository(), tag);
 
   const remoteTags = run(
     'git',

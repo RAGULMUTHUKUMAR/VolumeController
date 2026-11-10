@@ -28,8 +28,9 @@ not ringtone, alarm, or call volume.
   Android device
 - A Java Development Kit compatible with the Android Gradle Plugin
 - `make` if you want to use the Makefile shortcuts
-- GitHub CLI (`gh`), authenticated with repository access, to start production
-  releases using `make git-release`
+- `curl` for retrying an unpublished release tag
+- GitHub CLI (`gh`), authenticated with repository access, to start a new
+  production release using `make git-release`
 
 For Android Studio, SDK, and device setup, follow the official
 [React Native Android environment setup guide](https://reactnative.dev/docs/set-up-your-environment).
@@ -196,15 +197,22 @@ To retry a failed tag that has no published GitHub Release, first commit and
 push the workflow fix to `main`, then run:
 
 ```sh
-make retry-release TAG=v0.0.2
+make retry-release
 ```
 
-This command requires a clean, up-to-date `main`, checks that the tag matches
-the app version and exists on GitHub, and refuses to retag if a GitHub Release
-already exists. It moves only that tag to the current `origin/main` commit and
+By default, this retries the tag matching the version in `package.json`. To
+specify a different tag explicitly, use `make retry-release TAG=v0.0.2`. The
+command requires the current branch to be `main`, fetches the latest
+`origin/main`, checks the tag against the version in that remote branch, and
+refuses to retag if a GitHub Release already exists. It does not require a clean
+local working tree or a local branch synchronized with GitHub; local edits are
+left untouched and the tag is moved specifically to `origin/main`. The push
 uses `--force-with-lease` so a concurrent remote tag change is not overwritten.
-The tag push reruns the release workflow. Never use it to replace a tag for a
-release that has already been published or distributed.
+The release-existence check uses `curl` and the GitHub REST API, so the GitHub
+CLI is not needed for retries. Set `GITHUB_TOKEN` if the repository is private
+or API authentication is required. The tag push reruns the release workflow.
+Never use it to replace a tag for a release that has already been published or
+distributed.
 
 Configure all four repository Actions secrets before running
 `make git-release`: `ANDROID_KEYSTORE_BASE64` (base64-encoded keystore),

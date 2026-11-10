@@ -2,6 +2,7 @@
 
 NODE ?= node
 BUMP ?= patch
+TAG ?= v$(shell $(NODE) -p 'require("./package.json").version')
 
 .PHONY: help metro android clean release release-preview git-release git-release-preview retry-release release-tag
 
@@ -14,7 +15,7 @@ help:
 	  'make release-preview BUMP=patch|minor|major  Preview a version bump' \
 	  'make git-release BUMP=patch|minor|major      Create and push a production Git release' \
 	  'make git-release-preview BUMP=patch|minor|major  Preview a production Git release' \
-	  'make retry-release TAG=vMAJOR.MINOR.PATCH       Retry an unpublished failed release tag'
+	  'make retry-release [TAG=vMAJOR.MINOR.PATCH]     Retry a failed tag (defaults to current app version)'
 
 metro:
 	npm start
