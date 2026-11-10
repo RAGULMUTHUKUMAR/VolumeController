@@ -1,97 +1,160 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# Volume Controller
 
-# Getting Started
+Volume Controller is a small React Native app for changing Android media
+volume when the phone's physical volume buttons are unavailable or difficult to
+use. It provides in-app controls and Android Quick Settings tiles.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+The app controls **media volume** (the volume used by music and other media),
+not ringtone, alarm, or call volume.
 
-## Step 1: Start Metro
+## Features
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+- Read and adjust the current media volume from the app.
+- Drag the in-app slider or use the Volume + and Volume - buttons.
+- Use the **Volume Controller** Quick Settings tile to show Android's native
+  media-volume UI without changing the current level.
+- Use the **Restart** Quick Settings tile to open Android's system power menu.
+  Choose Restart from that menu to confirm the restart.
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+> **Android limitation:** A regular app cannot directly shut down or restart a
+> device. The Restart tile opens the system power menu for the user to confirm;
+> it does not force a restart. The tile requires the app's Power Menu
+> Accessibility Service to be enabled.
+
+## Requirements
+
+- Node.js `>= 22.11.0` and npm
+- Android Studio with the Android SDK and a configured emulator, or a physical
+  Android device
+- A Java Development Kit compatible with the Android Gradle Plugin
+- `make` if you want to use the Makefile shortcuts
+
+For Android Studio, SDK, and device setup, follow the official
+[React Native Android environment setup guide](https://reactnative.dev/docs/set-up-your-environment).
+
+## Install dependencies
+
+From the project root:
 
 ```sh
-# Using npm
+npm ci
+```
+
+## Run on Android
+
+Start an Android emulator or connect a phone with USB debugging enabled. Install
+the app dependencies, then run Metro and the Android app in separate terminals.
+
+**Terminal 1 — start Metro:**
+
+```sh
+make metro
+```
+
+Equivalent command:
+
+```sh
 npm start
-
-# OR using Yarn
-yarn start
 ```
 
-## Step 2: Build and run your app
-
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
-
-### Android
+**Terminal 2 — build and install the debug app:**
 
 ```sh
-# Using npm
+make android
+```
+
+Equivalent command:
+
+```sh
 npm run android
-
-# OR using Yarn
-yarn android
 ```
 
-### iOS
-
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
-
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+The Android command builds and installs the app on the available emulator or
+connected device. To check that a physical device is detected, run:
 
 ```sh
-bundle install
+adb devices
 ```
 
-Then, and every time you update your native dependencies, run:
+## Add the Quick Settings tiles
+
+After installing and opening the app at least once:
+
+1. Swipe down from the top of the screen to open Quick Settings. Swipe down
+   again if needed to expand the full tile panel.
+2. Tap the pencil or **Edit** control. Its appearance and location vary by
+   Android version and device manufacturer.
+3. Find **Volume Controller** and **Restart** in the available tiles.
+4. Drag each tile into the active Quick Settings area.
+
+Tap **Volume Controller** to display the system media-volume controls. Tap
+**Restart** to open the system power menu.
+
+## Enable the Restart tile
+
+Android requires the app's Accessibility Service for the Restart tile to request
+the system power menu. Enable it once in Android Settings:
+
+1. Open **Settings** on the phone.
+2. Go to **Accessibility**.
+3. Open the installed, downloaded, or enabled services list. The name varies by
+   Android version and manufacturer.
+4. Select **Volume Controller Power Menu** and turn it on.
+5. Review and accept Android's confirmation.
+
+The service is used to request the system power menu. It does not directly
+restart or power off the phone. If the service is disabled, tapping **Restart**
+will take you to Accessibility settings.
+
+## Build a release APK
+
+From the project root:
 
 ```sh
-bundle exec pod install
+cd android
+./gradlew assembleRelease
 ```
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+The APK is generated at:
+
+```text
+android/app/build/outputs/apk/release/app-release.apk
+```
+
+Release builds have R8 code shrinking and resource shrinking enabled. The
+current Gradle configuration signs the release with the debug signing
+configuration for local testing. Before publishing or distributing an APK,
+configure a private production signing key as described in the
+[React Native signed APK guide](https://reactnative.dev/docs/signed-apk-android).
+Never commit a private signing key or its passwords.
+
+## Checks
+
+Run the existing lint and test commands from the project root:
 
 ```sh
-# Using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
+npm run lint
+npm test -- --watchAll=false
 ```
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+To run the TypeScript compiler without emitting files:
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+```sh
+npx tsc --noEmit
+```
 
-## Step 3: Modify your app
+## Project layout
 
-Now that you have successfully run the app, let's make changes!
+- `App.tsx` — React Native media-volume screen.
+- `android/app/src/main/java/com/volumecontroller/` — Android Quick Settings
+  tile and Accessibility Service implementations.
+- `android/app/src/main/AndroidManifest.xml` — Android activity, tile, and
+  Accessibility Service declarations.
+- `android/app/src/main/res/drawable/` — Quick Settings tile icons.
+- `Makefile` — `make metro` and `make android` shortcuts.
 
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
+## iOS
 
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+The repository includes an iOS project, but the Quick Settings tiles and power
+menu flow described here are Android-only features. The app's native volume
+behavior and tile setup should be tested on Android.
