@@ -106,7 +106,7 @@ The service is used to request the system power menu. It does not directly
 restart or power off the phone. If the service is disabled, tapping **Restart**
 will take you to Accessibility settings.
 
-## Build a release APK
+## Build a local release APK
 
 From the project root, run:
 
@@ -136,12 +136,62 @@ The APK is generated at:
 android/app/build/outputs/apk/release/app-release.apk
 ```
 
-Release builds have R8 code shrinking and resource shrinking enabled. The
-current Gradle configuration signs the release with the debug signing
-configuration for local testing. Before publishing or distributing an APK,
-configure a private production signing key as described in the
-[React Native signed APK guide](https://reactnative.dev/docs/signed-apk-android).
-Never commit a private signing key or its passwords.
+Release builds have R8 code shrinking and resource shrinking enabled. Without
+release-signing environment variables, the local APK uses the debug keystore
+so it can be installed for testing; do not distribute it. Configure a private
+release keystore for a distributable APK. Never commit a private signing key
+or its passwords.
+
+## GitHub Actions and versioned releases
+
+GitHub Actions runs tests, ESLint, TypeScript checks, and an Android debug build
+for pull requests and pushes to `main`. `make release` only builds an APK
+locally; it does not change versions, create a tag, push code, or publish a
+GitHub Release.
+
+### Preview the next production version
+
+The version is read from `package.json`. Version bumps follow SemVer:
+
+- `patch`: `1.2.3` → `1.2.4` (backward-compatible fixes)
+- `minor`: `1.2.3` → `1.3.0` (backward-compatible features)
+- `major`: `1.2.3` → `2.0.0` (breaking changes)
+
+Preview a bump; this command does not edit files or Git refs:
+
+```sh
+make git-release-preview BUMP=patch
+make git-release-preview BUMP=minor
+make git-release-preview BUMP=major
+```
+
+### Create a production GitHub release
+
+After merging the intended changes to `main`, pulling the latest `main`, and
+ensuring the working tree is clean, choose the bump type and run:
+
+```sh
+make git-release BUMP=patch
+make git-release BUMP=minor
+make git-release BUMP=major
+```
+
+`BUMP` defaults to `patch` if omitted. The command checks that it is on an
+up-to-date `main` branch with a clean working tree, and refuses to reuse a
+version tag. It runs tests and lint, calculates the next SemVer version, updates
+`package.json`, `package-lock.json`, Android `versionName` and `versionCode`,
+and iOS marketing/build versions. It then commits those version updates,
+creates the matching annotated `vMAJOR.MINOR.PATCH` tag, and atomically pushes
+the commit and tag to `origin`. That tag starts the Android release workflow.
+
+The workflow verifies the tag and version, reruns tests and checks, builds the
+optimized APK, and attaches it to a GitHub Release. It intentionally fails
+unless all production signing secrets are configured.
+
+Configure all four repository Actions secrets before running
+`make git-release`: `ANDROID_KEYSTORE_BASE64` (base64-encoded keystore),
+`ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`.
+The signing key and passwords must remain private.
 
 ## Checks
 
@@ -166,8 +216,11 @@ npx tsc --noEmit
 - `android/app/src/main/AndroidManifest.xml` — Android activity, tile, and
   Accessibility Service declarations.
 - `android/app/src/main/res/drawable/` — Quick Settings tile icons.
-- `Makefile` — `make metro`, `make android`, `make clean`, and `make release`
-  shortcuts.
+- `.github/workflows/android-ci.yml` and `android-release.yml` — continuous
+  checks and tag-triggered Android release automation.
+- `scripts/release.js` — guarded semantic-version bump and Git tag workflow.
+- `Makefile` — `make release` for a local APK and `make git-release` for a
+  versioned production GitHub release.
 
 ## iOS
 

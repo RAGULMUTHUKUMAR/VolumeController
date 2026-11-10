@@ -66,6 +66,19 @@ react {
  * this variant is about 6MiB larger per architecture than default.
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
+def appVersion = new groovy.json.JsonSlurper().parse(file("../../package.json")).version
+def releaseSigningProperties = [
+    "ANDROID_KEYSTORE_PATH",
+    "ANDROID_KEYSTORE_PASSWORD",
+    "ANDROID_KEY_ALIAS",
+    "ANDROID_KEY_PASSWORD"
+].collectEntries { name -> [(name): System.getenv(name)] }
+def hasAnyReleaseSigningProperty = releaseSigningProperties.values().any { it }
+def hasCompleteReleaseSigning = releaseSigningProperties.values().every { it }
+
+if (hasAnyReleaseSigningProperty && !hasCompleteReleaseSigning) {
+    throw new GradleException("Set all Android release signing environment variables or leave all of them unset.")
+}
 
 android {
     ndkVersion rootProject.ext.ndkVersion
@@ -78,7 +91,7 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
-        versionName "1.0"
+        versionName appVersion
     }
     signingConfigs {
         debug {
@@ -87,15 +100,25 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            if (hasCompleteReleaseSigning) {
+                storeFile file(releaseSigningProperties["ANDROID_KEYSTORE_PATH"])
+                storePassword releaseSigningProperties["ANDROID_KEYSTORE_PASSWORD"]
+                keyAlias releaseSigningProperties["ANDROID_KEY_ALIAS"]
+                keyPassword releaseSigningProperties["ANDROID_KEY_PASSWORD"]
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            if (hasCompleteReleaseSigning) {
+                signingConfig signingConfigs.release
+            } else {
+                signingConfig signingConfigs.debug
+            }
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
