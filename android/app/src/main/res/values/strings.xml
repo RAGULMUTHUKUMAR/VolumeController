@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">VolumeController</string>
+    <string name="power_menu_accessibility_service_description">Allows the Restart Quick Settings tile to open the Android system power menu.</string>
 </resources>
