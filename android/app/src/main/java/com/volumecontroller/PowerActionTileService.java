@@ -17,7 +17,7 @@ abstract class PowerActionTileService extends TileService {
 
         Toast.makeText(
                 this,
-                "Enable Volume Controller Power Menu in Accessibility settings, then try again.",
+                "Enable Quick Control Power Menu in Accessibility settings, then try again.",
                 Toast.LENGTH_LONG).show();
 
         Intent settingsIntent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);

@@ -19,7 +19,7 @@
         <action android:name="android.service.quicksettings.action.QS_TILE" />
       </intent-filter>
     </service>
-    <service android:name=".PowerMenuAccessibilityService" android:description="@string/power_menu_accessibility_service_description" android:exported="true" android:label="Volume Controller Power Menu" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+    <service android:name=".PowerMenuAccessibilityService" android:description="@string/power_menu_accessibility_service_description" android:exported="true" android:label="Quick Control Power Menu" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
       <intent-filter>
         <action android:name="android.accessibilityservice.AccessibilityService" />
       </intent-filter>

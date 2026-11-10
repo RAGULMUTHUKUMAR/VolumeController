@@ -1,6 +1,6 @@
-# Volume Controller
+# Quick Control
 
-Volume Controller is a small React Native app for changing Android media
+Quick Control is a small React Native app for changing Android media
 volume when the phone's physical volume buttons are unavailable or difficult to
 use. It provides in-app controls and Android Quick Settings tiles.
 
@@ -99,7 +99,7 @@ the system power menu. Enable it once in Android Settings:
 2. Go to **Accessibility**.
 3. Open the installed, downloaded, or enabled services list. The name varies by
    Android version and manufacturer.
-4. Select **Volume Controller Power Menu** and turn it on.
+4. Select **Quick Control Power Menu** and turn it on.
 5. Review and accept Android's confirmation.
 
 The service is used to request the system power menu. It does not directly
@@ -108,10 +108,25 @@ will take you to Accessibility settings.
 
 ## Build a release APK
 
-From the project root:
+From the project root, run:
+
+```sh
+make release
+```
+
+This runs `./gradlew assembleRelease` from the `android/` directory. To remove
+Android build outputs and perform a clean rebuild, run:
+
+```sh
+make clean
+make release
+```
+
+Equivalent direct commands are:
 
 ```sh
 cd android
+./gradlew clean
 ./gradlew assembleRelease
 ```
 
@@ -151,7 +166,8 @@ npx tsc --noEmit
 - `android/app/src/main/AndroidManifest.xml` — Android activity, tile, and
   Accessibility Service declarations.
 - `android/app/src/main/res/drawable/` — Quick Settings tile icons.
-- `Makefile` — `make metro` and `make android` shortcuts.
+- `Makefile` — `make metro`, `make android`, `make clean`, and `make release`
+  shortcuts.
 
 ## iOS
 
