@@ -4,6 +4,17 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Semantic version increment
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
 
 permissions:
   contents: write
@@ -16,33 +27,32 @@ jobs:
   build:
     name: Test, build, and publish APK
     runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.version.outputs.tag }}
+      apk_name: ${{ steps.apk.outputs.apk_name }}
+      timestamp: ${{ steps.apk.outputs.timestamp }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Validate release tag and app version
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
+      - name: Confirm release branch
+        id: base
         run: |
-          git fetch origin main
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "::error::Release tags must point to a commit on main."
-            exit 1
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+              echo "::error::Production releases must run from main."
+              exit 1
+            fi
+          else
+            git fetch origin main
+            if ! git merge-base --is-ancestor HEAD origin/main; then
+              echo "::error::Release tags must point to a commit on main."
+              exit 1
+            fi
           fi
-
-          node <<'NODE'
-          const { version } = require("./package.json");
-          const tag = process.env.RELEASE_TAG;
-
-          if (!/^v\d+\.\d+\.\d+$/.test(tag)) {
-            throw new Error(`Release tag "${tag}" must use vMAJOR.MINOR.PATCH format.`);
-          }
-          if (tag.slice(1) !== version) {
-            throw new Error(`Release tag ${tag} does not match package.json version ${version}.`);
-          }
-          NODE
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -59,14 +69,44 @@ jobs:
 
       - name: Install Android SDK
         uses: android-actions/setup-android@v4
-        with:
-          packages: platform-tools,platforms;android-37,build-tools;37.0.0,ndk;27.1.12297006
+
+      - name: Install required Android SDK packages
+        run: |
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-37" \
+            "build-tools;37.0.0" \
+            "ndk;27.1.12297006"
 
       - name: Accept Android SDK licenses
         run: yes | sdkmanager --licenses > /dev/null
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Prepare next release version
+        id: version
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RELEASE_BUMP: ${{ inputs.bump }}
+        run: node scripts/release.js "$RELEASE_BUMP" --prepare >> "$GITHUB_OUTPUT"
+
+      - name: Validate existing release tag
+        id: existing-version
+        if: github.event_name == 'push'
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/release.js "$RELEASE_TAG" --existing-tag >> "$GITHUB_OUTPUT"
+
+      - name: Check release tag is unused
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null; then
+            echo "::error::Release tag $RELEASE_TAG already exists."
+            exit 1
+          fi
 
       - name: Run tests
         run: npm test -- --runInBand
@@ -105,7 +145,7 @@ jobs:
       - name: Name release APK
         id: apk
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag || steps.existing-version.outputs.tag }}
         run: |
           timestamp=$(date -u +%Y%m%dT%H%M%SZ)
           apk_name="quick-control-${RELEASE_TAG}-${timestamp}.apk"
@@ -113,18 +153,38 @@ jobs:
           echo "timestamp=$timestamp" >> "$GITHUB_OUTPUT"
           echo "apk_name=$apk_name" >> "$GITHUB_OUTPUT"
 
+      - name: Create version commit and tag
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git fetch origin main
+          if [[ "$(git rev-parse origin/main)" != "$BASE_SHA" ]]; then
+            echo "::error::main changed during the release build. Run the release again against the latest main."
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json android/app/build.gradle ios/VolumeController.xcodeproj/project.pbxproj
+          git commit -m "chore(release): ${RELEASE_TAG}" \
+            -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+          git tag -a "$RELEASE_TAG" -m "Quick Control ${RELEASE_TAG}"
+          git push --atomic origin HEAD:main "refs/tags/${RELEASE_TAG}"
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: quick-control-${{ github.ref_name }}-${{ steps.apk.outputs.timestamp }}
+          name: quick-control-${{ steps.version.outputs.tag || steps.existing-version.outputs.tag }}-${{ steps.apk.outputs.timestamp }}
           path: ${{ steps.apk.outputs.apk_name }}
           if-no-files-found: error
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Quick Control ${{ github.ref_name }}
+          tag_name: ${{ steps.version.outputs.tag || steps.existing-version.outputs.tag }}
+          name: Quick Control ${{ steps.version.outputs.tag || steps.existing-version.outputs.tag }}
           generate_release_notes: true
           files: ${{ steps.apk.outputs.apk_name }}
         env:

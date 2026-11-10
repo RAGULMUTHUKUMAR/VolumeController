@@ -3,7 +3,7 @@
 NODE ?= node
 BUMP ?= patch
 
-.PHONY: help metro android clean release release-preview git-release git-release-preview release-tag
+.PHONY: help metro android clean release release-preview git-release git-release-preview retry-release release-tag
 
 help:
 	@printf '%s\n' \
@@ -13,7 +13,8 @@ help:
 	  'make release                 Build a local Android release APK' \
 	  'make release-preview BUMP=patch|minor|major  Preview a version bump' \
 	  'make git-release BUMP=patch|minor|major      Create and push a production Git release' \
-	  'make git-release-preview BUMP=patch|minor|major  Preview a production Git release'
+	  'make git-release-preview BUMP=patch|minor|major  Preview a production Git release' \
+	  'make retry-release TAG=vMAJOR.MINOR.PATCH       Retry an unpublished failed release tag'
 
 metro:
 	npm start
@@ -34,6 +35,9 @@ git-release-preview:
 	$(NODE) scripts/release.js "$(BUMP)" --dry-run
 
 git-release:
-	$(NODE) scripts/release.js "$(BUMP)"
+	gh workflow run android-release.yml --ref main -f bump="$(BUMP)"
+
+retry-release:
+	node scripts/retry-release.js "$(TAG)"
 
 release-tag: git-release

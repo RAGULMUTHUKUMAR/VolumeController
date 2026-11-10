@@ -1,30 +1,14 @@
 #!/usr/bin/env node
 
 const fs = require('node:fs');
-const { spawnSync } = require('node:child_process');
 
 const bump = process.argv[2] || 'patch';
-const dryRun = process.argv[3] === '--dry-run';
+const mode = process.argv[3] || '--dry-run';
 const validBumps = new Set(['patch', 'minor', 'major']);
 
 function fail(message) {
   console.error(`Release aborted: ${message}`);
   process.exit(1);
-}
-
-function run(command, args, { capture = false, ...options } = {}) {
-  const result = spawnSync(command, args, {
-    encoding: 'utf8',
-    stdio: capture ? 'pipe' : 'inherit',
-    ...options,
-  });
-  if (result.error) {
-    fail(`Could not run ${command}: ${result.error.message}`);
-  }
-  if (result.status !== 0) {
-    fail(`${command} ${args.join(' ')} failed.`);
-  }
-  return result.stdout?.trim();
 }
 
 function readJson(path) {
@@ -33,24 +17,6 @@ function readJson(path) {
 
 function writeJson(path, value) {
   fs.writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
-}
-
-function nextVersion(currentVersion) {
-  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(
-    currentVersion,
-  );
-  if (!match) {
-    fail(`package.json version "${currentVersion}" must be MAJOR.MINOR.PATCH.`);
-  }
-
-  const [major, minor, patch] = match.slice(1).map(Number);
-  if (bump === 'major') {
-    return `${major + 1}.0.0`;
-  }
-  if (bump === 'minor') {
-    return `${major}.${minor + 1}.0`;
-  }
-  return `${major}.${minor}.${patch + 1}`;
 }
 
 function replaceExactly(path, expression, expectedCount, replace) {
@@ -106,94 +72,50 @@ function validateVersions(packageJson, packageLock) {
   }
 }
 
-function showPreview(packageJson, tag) {
-  const android = fs.readFileSync('android/app/build.gradle', 'utf8');
-  const androidBuildCodes = [
-    ...android.matchAll(/^([ \t]*versionCode[ \t]+)(\d+)([ \t]*)$/gm),
-  ].map(match => Number(match[2]));
-  const ios = fs.readFileSync(
+function getAndroidVersionCode() {
+  const gradle = fs.readFileSync('android/app/build.gradle', 'utf8');
+  const matches = [
+    ...gradle.matchAll(/^([ \t]*versionCode[ \t]+)(\d+)([ \t]*)$/gm),
+  ];
+  if (matches.length !== 1) {
+    fail('Expected one Android versionCode in android/app/build.gradle.');
+  }
+  return Number(matches[0][2]);
+}
+
+function getIosBuildNumber() {
+  const project = fs.readFileSync(
     'ios/VolumeController.xcodeproj/project.pbxproj',
     'utf8',
   );
-  const iosBuildNumbers = [
-    ...ios.matchAll(/^[ \t]*CURRENT_PROJECT_VERSION = (\d+);[ \t]*$/gm),
+  const buildNumbers = [
+    ...project.matchAll(/^[ \t]*CURRENT_PROJECT_VERSION = (\d+);[ \t]*$/gm),
   ].map(match => Number(match[1]));
-
-  if (androidBuildCodes.length !== 1 || iosBuildNumbers.length !== 2) {
-    fail('Could not determine the current Android/iOS build numbers.');
+  if (buildNumbers.length !== 2) {
+    fail('Expected two iOS CURRENT_PROJECT_VERSION settings.');
   }
-
-  console.log(`Current app version: ${packageJson.version}`);
-  console.log(`Next app version and Git tag: ${tag}`);
-  console.log(`Next Android versionCode: ${androidBuildCodes[0] + 1}`);
-  console.log(`Next iOS build number: ${Math.max(...iosBuildNumbers) + 1}`);
-  console.log('Preview only; no files or Git refs were changed.');
+  return Math.max(...buildNumbers);
 }
 
-function main() {
-  if (
-    process.argv.length > 4 ||
-    (process.argv[3] && process.argv[3] !== '--dry-run')
-  ) {
-    fail('Use [patch|minor|major] [--dry-run].');
-  }
-  if (!validBumps.has(bump)) {
-    fail(`Unknown bump "${bump}". Use patch, minor, or major.`);
+function calculateVersion(currentVersion) {
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(
+    currentVersion,
+  );
+  if (!match) {
+    fail(`package.json version "${currentVersion}" must be MAJOR.MINOR.PATCH.`);
   }
 
-  const packageJson = readJson('package.json');
-  const packageLock = readJson('package-lock.json');
-  validateVersions(packageJson, packageLock);
+  const [major, minor, patch] = match.slice(1).map(Number);
+  if (bump === 'major') {
+    return `${major + 1}.0.0`;
+  }
+  if (bump === 'minor') {
+    return `${major}.${minor + 1}.0`;
+  }
+  return `${major}.${minor}.${patch + 1}`;
+}
 
-  const version = nextVersion(packageJson.version);
-  const tag = `v${version}`;
-  if (dryRun) {
-    showPreview(packageJson, tag);
-    return;
-  }
-
-  const branch = run('git', ['branch', '--show-current'], { capture: true });
-  if (branch !== 'main') {
-    fail(
-      `Releases must be made from main (current branch: ${
-        branch || 'detached HEAD'
-      }).`,
-    );
-  }
-  if (run('git', ['status', '--porcelain'], { capture: true })) {
-    fail('The working tree must be clean. Commit or stash all changes first.');
-  }
-
-  run('git', ['fetch', 'origin', 'main']);
-  const head = run('git', ['rev-parse', 'HEAD'], { capture: true });
-  const remoteHead = run('git', ['rev-parse', 'origin/main'], {
-    capture: true,
-  });
-  if (head !== remoteHead) {
-    fail('Local main must exactly match origin/main before releasing.');
-  }
-
-  const localTag = spawnSync('git', ['rev-parse', '--verify', tag], {
-    stdio: 'ignore',
-  });
-  if (localTag.error) {
-    fail(`Could not check whether tag ${tag} already exists.`);
-  }
-  if (localTag.status === 0) {
-    fail(`Tag ${tag} already exists locally.`);
-  }
-  if (
-    run('git', ['ls-remote', '--tags', 'origin', `refs/tags/${tag}`], {
-      capture: true,
-    })
-  ) {
-    fail(`Tag ${tag} already exists on origin.`);
-  }
-
-  console.log(`Preparing ${tag} (${bump} version bump).`);
-  run('npm', ['test', '--', '--runInBand']);
-  run('npm', ['run', 'lint']);
-
+function prepareVersion(packageJson, packageLock, version) {
   packageJson.version = version;
   packageLock.version = version;
   packageLock.packages[''].version = version;
@@ -201,27 +123,53 @@ function main() {
   writeJson('package-lock.json', packageLock);
   updateAndroidVersionCode();
   updateIosVersions(version);
+}
 
-  run('git', [
-    'add',
-    'package.json',
-    'package-lock.json',
-    'android/app/build.gradle',
-    'ios/VolumeController.xcodeproj/project.pbxproj',
-  ]);
-  run('git', [
-    'commit',
-    '-m',
-    `chore(release): ${tag}`,
-    '-m',
-    'Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>',
-  ]);
-  run('git', ['tag', '-a', tag, '-m', `Quick Control ${tag}`]);
-  run('git', ['push', '--atomic', 'origin', 'main', tag]);
+function printReleaseOutputs(version) {
+  console.log(`version=${version}`);
+  console.log(`tag=v${version}`);
+  console.log(`android_version_code=${getAndroidVersionCode()}`);
+  console.log(`ios_build_number=${getIosBuildNumber()}`);
+}
 
-  console.log(
-    `Pushed ${tag}; the Android release workflow has been triggered.`,
-  );
+function main() {
+  if (
+    process.argv.length > 4 ||
+    !['--dry-run', '--prepare', '--existing-tag'].includes(mode)
+  ) {
+    fail('Use [patch|minor|major] [--dry-run|--prepare|--existing-tag].');
+  }
+  if (mode !== '--existing-tag' && !validBumps.has(bump)) {
+    fail(`Unknown bump "${bump}". Use patch, minor, or major.`);
+  }
+
+  const packageJson = readJson('package.json');
+  const packageLock = readJson('package-lock.json');
+  validateVersions(packageJson, packageLock);
+
+  const currentVersion = packageJson.version;
+  if (mode === '--existing-tag') {
+    const tag = bump;
+    if (!/^v\d+\.\d+\.\d+$/.test(tag) || tag.slice(1) !== currentVersion) {
+      fail(`Tag "${tag}" must match package.json version ${currentVersion}.`);
+    }
+    printReleaseOutputs(currentVersion);
+    return;
+  }
+
+  const version = calculateVersion(currentVersion);
+  const tag = `v${version}`;
+  if (mode === '--dry-run') {
+    console.log(`Current app version: ${currentVersion}`);
+    console.log(`Next app version and Git tag: ${tag}`);
+    console.log(`Next Android versionCode: ${getAndroidVersionCode() + 1}`);
+    console.log(`Next iOS build number: ${getIosBuildNumber() + 1}`);
+    console.log('Preview only; no files or Git refs were changed.');
+    return;
+  }
+
+  prepareVersion(packageJson, packageLock, version);
+  printReleaseOutputs(version);
 }
 
 main();

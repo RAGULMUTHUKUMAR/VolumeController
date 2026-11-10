@@ -28,6 +28,8 @@ not ringtone, alarm, or call volume.
   Android device
 - A Java Development Kit compatible with the Android Gradle Plugin
 - `make` if you want to use the Makefile shortcuts
+- GitHub CLI (`gh`), authenticated with repository access, to start production
+  releases using `make git-release`
 
 For Android Studio, SDK, and device setup, follow the official
 [React Native Android environment setup guide](https://reactnative.dev/docs/set-up-your-environment).
@@ -145,9 +147,9 @@ or its passwords.
 ## GitHub Actions and versioned releases
 
 GitHub Actions runs tests, ESLint, TypeScript checks, and an Android debug build
-for pull requests and pushes to `main`. `make release` only builds an APK
-locally; it does not change versions, create a tag, push code, or publish a
-GitHub Release.
+for pull requests and pushes to `main`. `make release` only builds a local APK;
+it does not change versions, create a tag, push code, or publish a GitHub
+Release.
 
 ### Preview the next production version
 
@@ -167,8 +169,7 @@ make git-release-preview BUMP=major
 
 ### Create a production GitHub release
 
-After merging the intended changes to `main`, pulling the latest `main`, and
-ensuring the working tree is clean, choose the bump type and run:
+After merging the intended changes to `main`, choose the bump type and run:
 
 ```sh
 make git-release BUMP=patch
@@ -176,22 +177,45 @@ make git-release BUMP=minor
 make git-release BUMP=major
 ```
 
-`BUMP` defaults to `patch` if omitted. The command checks that it is on an
-up-to-date `main` branch with a clean working tree, and refuses to reuse a
-version tag. It runs tests and lint, calculates the next SemVer version, updates
-`package.json`, `package-lock.json`, Android `versionName` and `versionCode`,
-and iOS marketing/build versions. It then commits those version updates,
-creates the matching annotated `vMAJOR.MINOR.PATCH` tag, and atomically pushes
-the commit and tag to `origin`. That tag starts the Android release workflow.
+`BUMP` defaults to `patch`. This command uses the authenticated GitHub CLI to
+dispatch the production workflow on `main`; it does not create a local tag or
+edit the local working tree. In the workflow, version files are prepared in an
+isolated runner, checks are run, and the signed optimized APK is built first.
+Only after that succeeds does the workflow commit the version changes, create
+the annotated `vMAJOR.MINOR.PATCH` tag, push the commit and tag atomically, and
+attach the APK to a GitHub Release. A test, signing, or build failure before
+that point leaves `main` and its version tags unchanged. The workflow refuses
+to release from a stale `main` commit or to reuse a version tag.
 
-The workflow verifies the tag and version, reruns tests and checks, builds the
-optimized APK, and attaches it to a GitHub Release. It intentionally fails
-unless all production signing secrets are configured.
+Pushing a `vMAJOR.MINOR.PATCH` tag directly also builds and publishes that
+existing version. This is useful for retrying an unpublished release after a
+workflow-only fix has been committed to `main`; the tag must point to a commit
+on `main` and its version must match `package.json`.
+
+To retry a failed tag that has no published GitHub Release, first commit and
+push the workflow fix to `main`, then run:
+
+```sh
+make retry-release TAG=v0.0.2
+```
+
+This command requires a clean, up-to-date `main`, checks that the tag matches
+the app version and exists on GitHub, and refuses to retag if a GitHub Release
+already exists. It moves only that tag to the current `origin/main` commit and
+uses `--force-with-lease` so a concurrent remote tag change is not overwritten.
+The tag push reruns the release workflow. Never use it to replace a tag for a
+release that has already been published or distributed.
 
 Configure all four repository Actions secrets before running
 `make git-release`: `ANDROID_KEYSTORE_BASE64` (base64-encoded keystore),
 `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`.
 The signing key and passwords must remain private.
+
+If a tag's build failed and no GitHub Release was published, do not create a
+new version just to retry. Once the workflow fix is on `main`, the unpublished
+tag can be moved to that fixed commit and pushed again to rerun the build.
+Only do this when no release has been distributed; tags for published releases
+should be treated as immutable.
 
 ## Checks
 
@@ -220,7 +244,8 @@ npx tsc --noEmit
   checks and tag-triggered Android release automation.
 - `scripts/release.js` — guarded semantic-version bump and Git tag workflow.
 - `Makefile` — `make release` for a local APK and `make git-release` for a
-  versioned production GitHub release.
+  versioned production GitHub release; `make retry-release TAG=...` retries an
+  unpublished failed release.
 
 ## iOS
 
